@@ -4,7 +4,7 @@
 #include <ctype.h>
 #include <curl/curl.h>
 
-#define PASTE_URL	"http://paste.maxux.net/direct.php"
+#define PASTE_URL	"https://paste.maxux.net/direct.php"
 #define CURL_USERAGENT	"Maxux Paste CLI Client"
 
 typedef struct paste_t {
