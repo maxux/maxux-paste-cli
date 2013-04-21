@@ -4,18 +4,24 @@
 #include <ctype.h>
 #include <curl/curl.h>
 
-#define PASTE_URL	"https://paste.maxux.net/direct.php"
-#define CURL_USERAGENT	"Maxux Paste CLI Client"
+#define PASTE_URL	"https://paste.maxux.net/api/post"
+#define CURL_USERAGENT	"maxuxpaste/curl"
 
 typedef struct paste_t {
 	char *data;
 	char *encoded;
 	char *nick;
+	char *lang;
 	
 	size_t size;
 	int lines;
 	
 } paste_t;
+
+void diep(char *str) {
+	perror(str);
+	exit(EXIT_FAILURE);
+}
 
 char to_hex(char code) {
 	static char hex[] = "0123456789abcdef";
@@ -23,9 +29,11 @@ char to_hex(char code) {
 }
 
 char *url_encode(char *str) {
-	char *pstr = str, *buf = malloc(strlen(str) * 3 + 1), *pbuf = buf;
+	char *pstr = str;
+	char *buf = (char *) malloc((strlen(str) * 3) + 1);
+	char *pbuf = buf;
 	
-	while (*pstr) {
+	while(*pstr) {
 		if (isalnum(*pstr) || *pstr == '-' || *pstr == '_' || *pstr == '.' || *pstr == '~') 
 			*pbuf++ = *pstr;
 			
@@ -43,33 +51,28 @@ char *url_encode(char *str) {
 	return buf;
 }
 
-int main(void) {
+int main(int argc, char *argv[]) {
 	FILE *fp;
 	char buffer[4096];
-	
-	paste_t paste;
 	size_t len;
 	unsigned int nballoc = 1;
-	
 	CURL *curl;
-	CURLcode res;
 	struct curl_slist *head = NULL;
 	
-
-	paste.data    = NULL;
-	paste.encoded = NULL;
-	paste.size    = 0;
-	paste.lines   = 0;
+	paste_t paste = {
+		.data    = NULL,
+		.encoded = NULL,
+		.lang    = "text",
+		.size    = 0,
+		.lines   = 0,
+	};
 	
 	/* Opening stdin */
-	fp = fopen("/dev/stdin", "r");
-	if(!fp) {
-		perror("/dev/stdin");
-		return 1;
-	}
+	if(!(fp = fopen("/dev/stdin", "r")))
+		diep("/dev/stdin");
 	
 	/* Allocating */
-	paste.data = (char*) malloc(sizeof(char) * 10 * 1024);	/* 10 ko */
+	paste.data = (char *) malloc(sizeof(char) * 10 * 1024);	/* 10 ko */
 	strcpy(paste.data, "      ");	/* Write 'paste=' */
 	
 	/* Nick */
@@ -78,12 +81,16 @@ int main(void) {
 		return 1;
 	}
 	
-	printf("[+] Paste: init paste to paste.maxux.net\n");
-	printf("[+] Paste: Nick: %s, Language: text\n", paste.nick);
+	/* Lang */
+	if(argc >= 3) {
+		if(!strcmp(argv[1], "-l"))
+			paste.lang = argv[2];
+	}
+	
+	printf("[+] Paste: nick: %s, language: %s\n", paste.nick, paste.lang);
 	printf("----------8<--------------------------\n");
 	
 	while(fgets(buffer, sizeof(buffer), fp)) {
-		/* Print output: transparent mode */
 		printf("%s", buffer);
 		
 		paste.lines++;
@@ -99,9 +106,12 @@ int main(void) {
 	
 	fclose(fp);
 	
-	printf("-------------------------->8----------\n");
-	printf("[+] Paste: %d lines read (%u bytes).\n", paste.lines, paste.size);
-	printf("[+] Paste: Connecting to server...\n");
+	printf("----------8<--------------------------\n");
+	printf("[+] Paste: sending %d lines, %u bytes\n", paste.lines, paste.size);
+	
+	/*
+	 * FIXME: fucking crappy part
+	 */
 	
 	paste.encoded = url_encode(paste.data);
 	
@@ -112,46 +122,33 @@ int main(void) {
 	
 	// paste=<-- paste -->&nick=__NICK__
 	//                 6b <----><-------> strlen(paste.nick)
-	paste.encoded = realloc(paste.encoded, strlen(paste.encoded) + 6 + strlen(paste.nick) + 2);
-	sprintf(buffer, "&nick=%s", paste.nick);
+	paste.encoded = realloc(paste.encoded, strlen(paste.encoded) + strlen(paste.lang) + strlen(paste.nick) + 32);
+	sprintf(buffer, "&nick=%s&lang=%s", paste.nick, paste.lang);
 	strcat(paste.encoded, buffer);
 	
 	/* Sending data */
-	curl = curl_easy_init();
-	
-	if(!curl) {
+	if(!(curl = curl_easy_init())) {
 		fprintf(stderr, "[-] Paste: cannot init curl\n");
 		return 1;
 	}
 	
-	/* Setting URL */
 	curl_easy_setopt(curl, CURLOPT_URL, PASTE_URL);
-	
-	/* Setting POST Data */
 	curl_easy_setopt(curl, CURLOPT_POST, 1L);
 	curl_easy_setopt(curl, CURLOPT_POSTFIELDS, paste.encoded);
 	curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE , strlen(paste.encoded));
-	
-	/* Lighttpd fix */
-	head = curl_slist_append(head, "Expect:");
-	head = curl_slist_append(head, "Referer: http://paste.maxux.net/");
-	res = curl_easy_setopt(curl, CURLOPT_HTTPHEADER, head);
-	
-	/* Header/SSL Settings */
 	curl_easy_setopt(curl, CURLOPT_HEADER, 0);
 	curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0);
 	curl_easy_setopt(curl, CURLOPT_USERAGENT, CURL_USERAGENT);
+	curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10);
+	/* curl_easy_setopt(curl, CURLOPT_VERBOSE, 1); */
 	
-	/* Timeout */
-	curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30);
+	/* lighttpd fix */
+	head = curl_slist_append(head, "Expect:");
+	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, head);
 	
-	/* Debug */
-	// curl_easy_setopt(curl, CURLOPT_VERBOSE, 1);
-	
-	/* Working */
-	res = curl_easy_perform(curl);
-	
-	
+	/* let's doing it, curl will print the http answer to stdout */
+	curl_easy_perform(curl);
+		
 	/* Cleaning */
 	curl_easy_cleanup(curl);
 	free(paste.encoded);
