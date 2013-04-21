@@ -148,7 +148,6 @@ int main(int argc, char *argv[]) {
 	FILE *fp;
 	char buffer[4096];
 	size_t len;
-	unsigned int nballoc = 1;
 	char *reply;
 	paste_t paste = {
 		.data    = NULL,
@@ -163,7 +162,8 @@ int main(int argc, char *argv[]) {
 		diep("/dev/stdin");
 	
 	/* Allocating */
-	paste.data = (char *) malloc(sizeof(char) * 10 * 1024);	/* 10 ko */
+	/* Request 1 Mo of ram */
+	paste.data = (char *) malloc(sizeof(char) * MEMORY_ALLOC);
 	strcpy(paste.data, "      ");	/* Write 'paste=' */
 	
 	/* Nick */
@@ -180,6 +180,9 @@ int main(int argc, char *argv[]) {
 			paste.lang = argv[2];
 	}
 	
+	// unbuffered stdout
+	setvbuf(stdout, NULL, _IONBF, 0);
+	
 	printf("[+] Paste: nick: %s, language: %s\n", paste.nick, paste.lang);
 	printf("----------8<--------------------------\n");
 	
@@ -187,10 +190,12 @@ int main(int argc, char *argv[]) {
 		printf("%s", buffer);
 		
 		paste.lines++;
-		
 		len = strlen(buffer);
-		if(paste.size + len >= (10 * 1024) * nballoc)
-			paste.data = (char*) realloc(paste.data, sizeof(char) * 10 * 1024 * ++nballoc);
+		
+		if(paste.size + len + 1 > MEMORY_ALLOC) {
+			printf("[-] Paste: %u bytes exceed, stopping here.\n", MEMORY_ALLOC);
+			break;
+		}
 			
 		strcat(paste.data, buffer);
 		
@@ -205,7 +210,6 @@ int main(int argc, char *argv[]) {
 	/*
 	 * FIXME: fucking crappy part
 	 */
-	
 	paste.encoded = url_encode(paste.data);
 	
 	/* Override header */
@@ -219,8 +223,10 @@ int main(int argc, char *argv[]) {
 	sprintf(buffer, "&nick=%s&lang=%s", paste.nick, paste.lang);
 	strcat(paste.encoded, buffer);
 	
-	reply  = paste_send(&paste);
-	answer(reply);
+	if((reply  = paste_send(&paste)))
+		answer(reply);
+		
+	else fprintf(stderr, "[-] Paste: wrong answer from server\n");
 	
 	/* cleaning */
 	free(reply);
