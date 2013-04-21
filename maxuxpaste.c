@@ -1,22 +1,30 @@
+/* maxuxpaste is a command line remote paste for pipe Linux commands
+ * and save it to https://paste.maxux.net service
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ * 
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ * 
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+ * MA 02110-1301, USA.
+ * 
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
 #include <curl/curl.h>
-
-#define PASTE_URL	"https://paste.maxux.net/api/post"
-#define CURL_USERAGENT	"maxuxpaste/curl"
-
-typedef struct paste_t {
-	char *data;
-	char *encoded;
-	char *nick;
-	char *lang;
-	
-	size_t size;
-	int lines;
-	
-} paste_t;
+#include <jansson.h>
+#include "maxuxpaste.h"
 
 void diep(char *str) {
 	perror(str);
@@ -28,7 +36,7 @@ char to_hex(char code) {
 	return hex[code & 15];
 }
 
-char *url_encode(char *str) {
+char * url_encode(char *str) {
 	char *pstr = str;
 	char *buf = (char *) malloc((strlen(str) * 3) + 1);
 	char *pbuf = buf;
@@ -51,14 +59,97 @@ char *url_encode(char *str) {
 	return buf;
 }
 
+void answer(char *json) {
+	json_t *root, *node;
+	json_error_t error;
+	
+	if(!(root = json_loads(json, 0, &error))) {
+		fprintf(stderr, "[-] json errors\n");
+		return;
+	}
+	
+	if(!json_is_object(root)) {
+		fprintf(stderr, "[-] json error: not an object\n");
+		return;
+	}
+	
+	node = json_object_get(root, "url");
+	if(!json_is_string(node)) {
+		node = json_object_get(root, "error");
+		
+		if(!json_is_string(node)) {
+			fprintf(stderr, "[-] cannot parse json response\n");
+			return;
+			
+		} else printf("[-] Paste: %s\n", json_string_value(node));
+		
+	} else printf("[+] Paste: %s\n", json_string_value(node));
+	
+	json_decref(root);
+}
+
+size_t curl_body(char *ptr, size_t size, size_t nmemb, void *userdata) {
+	curl_data_t *curl = (curl_data_t*) userdata;
+	size_t prev;
+	
+	prev = curl->length;
+	curl->length += (size * nmemb);
+	
+	/* Resize data */
+	curl->data  = (char *) realloc(curl->data, (curl->length + 1));
+	
+	/* Appending data */
+	memcpy(curl->data + prev, ptr, size * nmemb);
+	
+	/* Return required by libcurl */
+	return size * nmemb;
+}
+
+char * paste_send(paste_t *paste) {
+	CURL *curl;
+	struct curl_slist *head = NULL;
+	curl_data_t curldata = {
+		.data   = NULL,
+		.length = 0,
+	};
+	
+	/* Sending data */
+	if(!(curl = curl_easy_init())) {
+		fprintf(stderr, "[-] Paste: cannot init curl\n");
+		return NULL;
+	}
+	
+	curl_easy_setopt(curl, CURLOPT_URL, CURL_API_URL);
+	curl_easy_setopt(curl, CURLOPT_POST, 1L);
+	curl_easy_setopt(curl, CURLOPT_POSTFIELDS, paste->encoded);
+	curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE , strlen(paste->encoded));
+	curl_easy_setopt(curl, CURLOPT_HEADER, 0);
+	curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0);
+	curl_easy_setopt(curl, CURLOPT_USERAGENT, CURL_USERAGENT);
+	curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10);
+	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &curldata);
+	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_body);
+	/* curl_easy_setopt(curl, CURLOPT_VERBOSE, 1); */
+	
+	/* lighttpd fix */
+	head = curl_slist_append(head, "Expect:");
+	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, head);
+	
+	/* let's doing it, curl will print the http answer to stdout */
+	curl_easy_perform(curl);
+		
+	/* Cleaning */
+	curl_easy_cleanup(curl);
+	
+	return curldata.data;
+}
+
 int main(int argc, char *argv[]) {
 	FILE *fp;
 	char buffer[4096];
 	size_t len;
 	unsigned int nballoc = 1;
-	CURL *curl;
-	struct curl_slist *head = NULL;
-	
+	char *reply;
 	paste_t paste = {
 		.data    = NULL,
 		.encoded = NULL,
@@ -76,9 +167,11 @@ int main(int argc, char *argv[]) {
 	strcpy(paste.data, "      ");	/* Write 'paste=' */
 	
 	/* Nick */
-	if(!(paste.nick = getenv("USER"))) {
-		fprintf(stderr, "[-] Paste: cannot get username\n");
-		return 1;
+	if(!(paste.nick = getenv("PASTENICK"))) {
+		if(!(paste.nick = getenv("USER"))) {
+			fprintf(stderr, "[-] Paste: cannot get username\n");
+			paste.nick = "curlnick";
+		}
 	}
 	
 	/* Lang */
@@ -126,31 +219,11 @@ int main(int argc, char *argv[]) {
 	sprintf(buffer, "&nick=%s&lang=%s", paste.nick, paste.lang);
 	strcat(paste.encoded, buffer);
 	
-	/* Sending data */
-	if(!(curl = curl_easy_init())) {
-		fprintf(stderr, "[-] Paste: cannot init curl\n");
-		return 1;
-	}
+	reply  = paste_send(&paste);
+	answer(reply);
 	
-	curl_easy_setopt(curl, CURLOPT_URL, PASTE_URL);
-	curl_easy_setopt(curl, CURLOPT_POST, 1L);
-	curl_easy_setopt(curl, CURLOPT_POSTFIELDS, paste.encoded);
-	curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE , strlen(paste.encoded));
-	curl_easy_setopt(curl, CURLOPT_HEADER, 0);
-	curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0);
-	curl_easy_setopt(curl, CURLOPT_USERAGENT, CURL_USERAGENT);
-	curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10);
-	/* curl_easy_setopt(curl, CURLOPT_VERBOSE, 1); */
-	
-	/* lighttpd fix */
-	head = curl_slist_append(head, "Expect:");
-	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, head);
-	
-	/* let's doing it, curl will print the http answer to stdout */
-	curl_easy_perform(curl);
-		
-	/* Cleaning */
-	curl_easy_cleanup(curl);
+	/* cleaning */
+	free(reply);
 	free(paste.encoded);
 	free(paste.data);
 	
