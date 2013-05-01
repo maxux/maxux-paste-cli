@@ -36,7 +36,7 @@ char to_hex(char code) {
 	return hex[code & 15];
 }
 
-char * url_encode(char *str) {
+char *url_encode(char *str) {
 	char *pstr = str;
 	char *buf = (char *) malloc((strlen(str) * 3) + 1);
 	char *pbuf = buf;
@@ -105,7 +105,7 @@ size_t curl_body(char *ptr, size_t size, size_t nmemb, void *userdata) {
 	return size * nmemb;
 }
 
-char * paste_send(paste_t *paste) {
+char *paste_send(paste_t *paste) {
 	CURL *curl;
 	struct curl_slist *head = NULL;
 	curl_data_t curldata = {
@@ -137,6 +137,7 @@ char * paste_send(paste_t *paste) {
 	
 	/* let's doing it, curl will print the http answer to stdout */
 	curl_easy_perform(curl);
+	curldata.data[curldata.length] = '\0';
 		
 	/* Cleaning */
 	curl_easy_cleanup(curl);

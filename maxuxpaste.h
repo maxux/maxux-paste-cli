@@ -14,7 +14,7 @@
 
 	typedef struct curl_data_t {
 		char *data;
-		size_t length;
+		unsigned int length;
 		long code;
 		CURLcode curlcode;
 		
