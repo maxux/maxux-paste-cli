@@ -165,7 +165,7 @@ int main(int argc, char *argv[]) {
 	/* Allocating */
 	/* Request 1 Mo of ram */
 	paste.data = (char *) malloc(sizeof(char) * MEMORY_ALLOC);
-	strcpy(paste.data, "      ");	/* Write 'paste=' */
+	strcpy(paste.data, "     "); /* Write 'code=' */
 	
 	/* Nick */
 	if(!(paste.nick = getenv("PASTENICK"))) {
@@ -214,7 +214,7 @@ int main(int argc, char *argv[]) {
 	paste.encoded = url_encode(paste.data);
 	
 	/* Override header */
-	strncpy(paste.encoded, "paste=", 6);
+	strncpy(paste.encoded, "code=", 5);
 	
 	/* Append nick */
 	
