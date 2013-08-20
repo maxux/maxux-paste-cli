@@ -6,6 +6,7 @@
 		char *encoded;
 		char *nick;
 		char *lang;
+		char private;
 		
 		size_t size;
 		int lines;

@@ -24,7 +24,16 @@
 #include <ctype.h>
 #include <curl/curl.h>
 #include <jansson.h>
+#include <getopt.h>
 #include "maxuxpaste.h"
+
+static struct option lng_opts[] = {
+	{"nick",    required_argument, 0, 'n'},
+	{"lang",    required_argument, 0, 'l'},
+	{"private", no_argument,       0, 'p'},
+	{"help",    no_argument,       0, 'h'},
+	{0, 0, 0, 0}
+};
 
 void diep(char *str) {
 	perror(str);
@@ -145,46 +154,81 @@ char *paste_send(paste_t *paste) {
 	return curldata.data;
 }
 
+void print_usage(char *argv0) {
+	fprintf(stderr, "%s: options\n", argv0);
+	fprintf(stderr, " --nick, -n    : nickname for paste\n");
+	fprintf(stderr, " --lang, -l    : lang of the paste (default: text)\n");
+	fprintf(stderr, " --private, -p : set paste private\n");
+	fprintf(stderr, " --help, -h    : this message\n");
+}
+
 int main(int argc, char *argv[]) {
 	FILE *fp;
 	char buffer[4096];
 	size_t len;
 	char *reply;
+	int i, oi = 0;
 	paste_t paste = {
 		.data    = NULL,
+		.nick    = NULL,
 		.encoded = NULL,
 		.lang    = "text",
 		.size    = 0,
 		.lines   = 0,
+		.private = 0,
 	};
 	
-	/* Opening stdin */
-	if(!(fp = fopen("/dev/stdin", "r")))
-		diep("/dev/stdin");
-	
-	/* Allocating */
-	/* Request 1 Mo of ram */
-	paste.data = (char *) malloc(sizeof(char) * MEMORY_ALLOC);
-	strcpy(paste.data, "     "); /* Write 'code=' */
-	
-	/* Nick */
-	if(!(paste.nick = getenv("PASTENICK"))) {
-		if(!(paste.nick = getenv("USER"))) {
-			fprintf(stderr, "[-] Paste: cannot get username\n");
-			paste.nick = "curlnick";
+	/* parsing options */
+	while(1) {
+		if((i = getopt_long(argc, argv, "n:l:ph", lng_opts, &oi)) == -1)
+			break;
+
+		switch(i) {
+			case 'n':
+				paste.nick = optarg;
+			break;
+			case 'l':
+				paste.lang = optarg;
+			break;
+			case 'p':
+				paste.private = 1;
+			break;
+			
+			case 'h':
+			case '?':
+				print_usage(argv[0]);
+				return 1;
+			break;
+
+			default:
+				abort();
 		}
 	}
 	
-	/* Lang */
-	if(argc >= 3) {
-		if(!strcmp(argv[1], "-l"))
-			paste.lang = argv[2];
+	/* opening stdin */
+	if(!(fp = fopen("/dev/stdin", "r")))
+		diep("/dev/stdin");
+	
+	/* allocating */
+	paste.data = (char *) malloc(sizeof(char) * MEMORY_ALLOC);
+	strcpy(paste.data, "     "); /* Write 'code=' */
+	
+	/* if nick not set on arguments */
+	if(!paste.nick) {
+		/* default nick from environment */
+		if(!(paste.nick = getenv("PASTENICK"))) {
+			/* fallback */
+			if(!(paste.nick = getenv("USER"))) {
+				fprintf(stderr, "[-] Paste: cannot get username\n");
+				paste.nick = "curlnick";
+			}
+		}
 	}
 	
 	// unbuffered stdout
 	setvbuf(stdout, NULL, _IONBF, 0);
 	
-	printf("[+] Paste: nick: %s, language: %s\n", paste.nick, paste.lang);
+	printf("[+] Paste: nick: %s, language: %s, private: %d\n", paste.nick, paste.lang, paste.private);
 	printf("----------8<--------------------------\n");
 	
 	while(fgets(buffer, sizeof(buffer), fp)) {
@@ -221,10 +265,10 @@ int main(int argc, char *argv[]) {
 	// paste=<-- paste -->&nick=__NICK__
 	//                 6b <----><-------> strlen(paste.nick)
 	paste.encoded = realloc(paste.encoded, strlen(paste.encoded) + strlen(paste.lang) + strlen(paste.nick) + 32);
-	sprintf(buffer, "&nick=%s&lang=%s", paste.nick, paste.lang);
+	sprintf(buffer, "&nick=%s&lang=%s&private=%d", paste.nick, paste.lang, paste.private);
 	strcat(paste.encoded, buffer);
 	
-	if((reply  = paste_send(&paste)))
+	if((reply = paste_send(&paste)))
 		answer(reply);
 		
 	else fprintf(stderr, "[-] Paste: wrong answer from server\n");
