@@ -1,15 +1,12 @@
-include config.mk
+EXEC = mpaste
+
+CFLAGS  = -W -Wall -O2 -pipe -ansi -pedantic -std=gnu99
+LDFLAGS = -lcurl -ljansson
 
 SRC=$(wildcard *.c)
 OBJ=$(SRC:.c=.o)
 
-all: options $(EXEC)
-
-options: config.mk
-	@echo $(EXEC) build options:
-	@echo "CFLAGS   = $(CFLAGS)"
-	@echo "LDFLAGS  = $(LDFLAGS)"
-	@echo "CC       = $(CC)"
+all: $(EXEC)
 
 $(EXEC): $(OBJ)
 	$(CC) -o $@ $^ $(LDFLAGS)
@@ -22,4 +19,5 @@ clean:
 
 mrproper: clean
 	rm -fv $(EXEC)
+
 
