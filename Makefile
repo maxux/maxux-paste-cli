@@ -1,6 +1,6 @@
 EXEC = mpaste
 
-CFLAGS  = -W -Wall -O2 -pipe -ansi -pedantic -std=gnu99
+CFLAGS  = -g -W -Wall -O2 -pipe -ansi -pedantic -std=gnu99
 LDFLAGS = -lcurl -ljansson
 
 SRC=$(wildcard *.c)

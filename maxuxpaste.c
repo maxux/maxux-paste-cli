@@ -90,9 +90,9 @@ void answer(char *json) {
             fprintf(stderr, "[-] cannot parse json response\n");
             return;
 
-        } else printf("[-] Paste: %s\n", json_string_value(node));
+        } else printf("[-] paste: %s\n", json_string_value(node));
 
-    } else printf("[+] Paste: %s\n", json_string_value(node));
+    } else printf("[+] paste: %s\n", json_string_value(node));
 
     json_decref(root);
 }
@@ -124,7 +124,7 @@ char *paste_send(paste_t *paste) {
 
     /* Sending data */
     if(!(curl = curl_easy_init())) {
-        fprintf(stderr, "[-] Paste: cannot init curl\n");
+        fprintf(stderr, "[-] paste: cannot init curl\n");
         return NULL;
     }
 
@@ -146,7 +146,9 @@ char *paste_send(paste_t *paste) {
 
     /* let's doing it, curl will print the http answer to stdout */
     curl_easy_perform(curl);
-    curldata.data[curldata.length] = '\0';
+
+    if(curldata.data)
+        curldata.data[curldata.length] = '\0';
 
     /* Cleaning */
     curl_easy_cleanup(curl);
